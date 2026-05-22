@@ -18,20 +18,18 @@ vuln()   { echo -e "${RED}${BOLD}[VULN] $*${RESET}"; }
 header() { echo -e "\n${BOLD}$(printf '=%.0s' {1..60})${RESET}"; echo -e "${BOLD}${CYAN}  $*${RESET}"; echo -e "${BOLD}$(printf '=%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<USAGE
-ldap_enum.sh — LDAP / Active Directory enumeration
-
-  -t <ip>       Target DC IP (required)
-  -d <domain>   Domain (e.g. domain.local) (required)
-  -u <user>     Username (omit for null/anonymous bind)
-  -p <pass>     Password
-  -o <dir>      Output directory
-  -h            Help
-
-Examples:
-  $0 -t 10.10.10.5 -d domain.local
-  $0 -t 10.10.10.5 -d domain.local -u ldapuser -p Password123
-USAGE
+    echo -e "ldap_enum.sh — LDAP / Active Directory enumeration"
+    echo -e ""
+    echo -e "  -t <ip>       Target DC IP (required)"
+    echo -e "  -d <domain>   Domain (e.g. domain.local) (required)"
+    echo -e "  -u <user>     Username (omit for null/anonymous bind)"
+    echo -e "  -p <pass>     Password"
+    echo -e "  -o <dir>      Output directory"
+    echo -e "  -h            Help"
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t 10.10.10.5 -d domain.local"
+    echo -e "  $0 -t 10.10.10.5 -d domain.local -u ldapuser -p Password123"
     exit 0
 }
 

@@ -19,21 +19,19 @@ vuln()   { echo -e "${RED}${BOLD}[VULN] $*${RESET}"; }
 header() { echo -e "\n${BOLD}$(printf '=%.0s' {1..60})${RESET}"; echo -e "${BOLD}${CYAN}  $*${RESET}"; echo -e "${BOLD}$(printf '=%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<USAGE
-smb_enum.sh — SMB enumeration (shares, users, policy, signing)
-
-  -t <ip>       Target IP (required)
-  -u <user>     Username (default: empty / null session)
-  -p <pass>     Password (default: empty)
-  -d <domain>   Domain or workgroup (default: WORKGROUP)
-  -o <dir>      Output directory
-  -h            Help
-
-Examples:
-  $0 -t 10.10.10.5
-  $0 -t 10.10.10.5 -u guest -p ""
-  $0 -t 10.10.10.5 -u administrator -p Password123 -d CORP
-USAGE
+    echo -e "smb_enum.sh — SMB enumeration (shares, users, policy, signing)"
+    echo -e ""
+    echo -e "  -t <ip>       Target IP (required)"
+    echo -e "  -u <user>     Username (default: empty / null session)"
+    echo -e "  -p <pass>     Password (default: empty)"
+    echo -e "  -d <domain>   Domain or workgroup (default: WORKGROUP)"
+    echo -e "  -o <dir>      Output directory"
+    echo -e "  -h            Help"
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t 10.10.10.5"
+    echo -e "  $0 -t 10.10.10.5 -u guest -p \"\""
+    echo -e "  $0 -t 10.10.10.5 -u administrator -p Password123 -d CORP"
     exit 0
 }
 

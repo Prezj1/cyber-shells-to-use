@@ -16,20 +16,18 @@ info()  { echo -e "${CYAN}[*] $*${RESET}"; }
 header(){ echo -e "\n${BOLD}$(printf '=%.0s' {1..60})${RESET}"; echo -e "${BOLD}${CYAN}  $*${RESET}"; echo -e "${BOLD}$(printf '=%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<USAGE
-screenshot_notes.sh — Create exam folder structure and note templates
-
-  -t <ip>      Single target IP
-  -l <file>    File with one IP per line (optionally "IP name" per line)
-  -n <name>    Machine name label (e.g. "Lame", "Legacy")
-  -o <dir>     Base output directory (default: ./exam_<date>)
-  -h           Help
-
-Examples:
-  $0 -t 10.10.10.5
-  $0 -t 10.10.10.5 -n "Legacy" -o ./oscp_exam
-  $0 -l targets.txt -o ./exam
-USAGE
+    echo -e "screenshot_notes.sh — Create exam folder structure and note templates"
+    echo -e ""
+    echo -e "  -t <ip>      Single target IP"
+    echo -e "  -l <file>    File with one IP per line (optionally \"IP name\" per line)"
+    echo -e "  -n <name>    Machine name label (e.g. \"Lame\", \"Legacy\")"
+    echo -e "  -o <dir>     Base output directory (default: ./exam_<date>)"
+    echo -e "  -h           Help"
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t 10.10.10.5"
+    echo -e "  $0 -t 10.10.10.5 -n \"Legacy\" -o ./oscp_exam"
+    echo -e "  $0 -l targets.txt -o ./exam"
     exit 0
 }
 

@@ -31,22 +31,20 @@ warn() { echo -e "${YELLOW}[-] $*${RESET}"; }
 sep()  { echo -e "${BOLD}$(printf '─%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<EOF
-${BOLD}snmp_searchsploit.sh${RESET} — correlate nmap SNMP output with searchsploit
-
-  ${CYAN}-f <file>${RESET}    nmap output file (use '-' for stdin)
-  ${CYAN}-t <target>${RESET}  run nmap SNMP scan against target, then search
-  ${CYAN}-c <community>${RESET} SNMP community string (default: public)
-  ${CYAN}-o <file>${RESET}    write results to file
-  ${CYAN}-j${RESET}           also output JSON summary
-  ${CYAN}-v${RESET}           verbose: show searchsploit output even when empty
-  ${CYAN}-h${RESET}           this help
-
-${BOLD}Examples:${RESET}
-  $0 -f scan.nmap
-  $0 -t 192.168.1.0/24
-  nmap -sU -p 161 --script snmp-info 10.0.0.1 | $0 -f -
-EOF
+    echo -e "${BOLD}snmp_searchsploit.sh${RESET} — correlate nmap SNMP output with searchsploit"
+    echo -e ""
+    echo -e "  ${CYAN}-f <file>${RESET}      nmap output file (use '-' for stdin)"
+    echo -e "  ${CYAN}-t <target>${RESET}    run nmap SNMP scan against target, then search"
+    echo -e "  ${CYAN}-c <community>${RESET} SNMP community string (default: public)"
+    echo -e "  ${CYAN}-o <file>${RESET}      write results to file"
+    echo -e "  ${CYAN}-j${RESET}             also output JSON summary"
+    echo -e "  ${CYAN}-v${RESET}             verbose: show searchsploit output even when empty"
+    echo -e "  ${CYAN}-h${RESET}             this help"
+    echo -e ""
+    echo -e "${BOLD}Examples:${RESET}"
+    echo -e "  $0 -f scan.nmap"
+    echo -e "  $0 -t 192.168.1.0/24"
+    echo -e "  nmap -sU -p 161 --script snmp-info 10.0.0.1 | $0 -f -"
     exit 0
 }
 

@@ -19,28 +19,26 @@ hit()   { echo -e "${RED}${BOLD}[HIT] $*${RESET}"; }
 header(){ echo -e "\n${BOLD}$(printf '=%.0s' {1..60})${RESET}"; echo -e "${BOLD}${CYAN}  $*${RESET}"; echo -e "${BOLD}$(printf '=%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<USAGE
-password_spray.sh — Lockout-aware credential spraying
-
-  -t <ip>        Target IP (required)
-  -d <domain>    Domain name (required for SMB/Kerberos)
-  -u <file>      User list file (required)
-  -p <password>  Single password to spray
-  -P <file>      Password list (one spray round per password, with delay)
-  -r <proto>     Protocol: smb | kerberos | ldap  (default: smb)
-  -D <secs>      Delay between spray rounds in seconds (default: 30)
-  -T <count>     Stop after this many hits (default: 0 = no limit)
-  -o <dir>       Output directory
-  -h             Help
-
-⚠  Always check password policy lockout threshold before spraying.
-   Use crackmapexec smb <target> --pass-pol to check first.
-
-Examples:
-  $0 -t 10.10.10.5 -d corp.local -u users.txt -p "Password123"
-  $0 -t 10.10.10.5 -d corp.local -u users.txt -P passwords.txt -D 60
-  $0 -t 10.10.10.5 -d corp.local -u users.txt -p "Spring2024!" -r kerberos
-USAGE
+    echo -e "password_spray.sh — Lockout-aware credential spraying"
+    echo -e ""
+    echo -e "  -t <ip>        Target IP (required)"
+    echo -e "  -d <domain>    Domain name (required for SMB/Kerberos)"
+    echo -e "  -u <file>      User list file (required)"
+    echo -e "  -p <password>  Single password to spray"
+    echo -e "  -P <file>      Password list (one spray round per password, with delay)"
+    echo -e "  -r <proto>     Protocol: smb | kerberos | ldap  (default: smb)"
+    echo -e "  -D <secs>      Delay between spray rounds in seconds (default: 30)"
+    echo -e "  -T <count>     Stop after this many hits (default: 0 = no limit)"
+    echo -e "  -o <dir>       Output directory"
+    echo -e "  -h             Help"
+    echo -e ""
+    echo -e "⚠  Always check password policy lockout threshold before spraying."
+    echo -e "   Use crackmapexec smb <target> --pass-pol to check first."
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t 10.10.10.5 -d corp.local -u users.txt -p \"Password123\""
+    echo -e "  $0 -t 10.10.10.5 -d corp.local -u users.txt -P passwords.txt -D 60"
+    echo -e "  $0 -t 10.10.10.5 -d corp.local -u users.txt -p \"Spring2024!\" -r kerberos"
     exit 0
 }
 

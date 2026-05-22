@@ -18,23 +18,21 @@ vuln()   { echo -e "${RED}${BOLD}[!] $*${RESET}"; }
 header() { echo -e "\n${BOLD}$(printf '=%.0s' {1..60})${RESET}"; echo -e "${BOLD}${CYAN}  $*${RESET}"; echo -e "${BOLD}$(printf '=%.0s' {1..60})${RESET}"; }
 
 usage() {
-    cat <<USAGE
-web_enum.sh — Web fingerprinting (headers, whatweb, nikto, robots, common paths)
-
-  -t <ip>       Target IP or hostname
-  -p <port>     Port (default: 80)
-  -s            Use HTTPS
-  -u <url>      Full URL (overrides -t/-p/-s)
-  -c <cookie>   Cookie string
-  -o <dir>      Output directory
-  -h            Help
-
-Examples:
-  $0 -t 10.10.10.5
-  $0 -t 10.10.10.5 -p 8080
-  $0 -t 10.10.10.5 -s -p 443
-  $0 -u "http://10.10.10.5:8080/app"
-USAGE
+    echo -e "web_enum.sh — Web fingerprinting (headers, whatweb, nikto, robots, common paths)"
+    echo -e ""
+    echo -e "  -t <ip>       Target IP or hostname"
+    echo -e "  -p <port>     Port (default: 80)"
+    echo -e "  -s            Use HTTPS"
+    echo -e "  -u <url>      Full URL (overrides -t/-p/-s)"
+    echo -e "  -c <cookie>   Cookie string"
+    echo -e "  -o <dir>      Output directory"
+    echo -e "  -h            Help"
+    echo -e ""
+    echo -e "Examples:"
+    echo -e "  $0 -t 10.10.10.5"
+    echo -e "  $0 -t 10.10.10.5 -p 8080"
+    echo -e "  $0 -t 10.10.10.5 -s -p 443"
+    echo -e "  $0 -u \"http://10.10.10.5:8080/app\""
     exit 0
 }
 
