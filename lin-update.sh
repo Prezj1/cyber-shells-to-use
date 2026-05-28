@@ -1719,7 +1719,7 @@ else
         user_hits=""
         for dir in "${hunt_dirs[@]}"; do
             [ -d "$dir" ] || continue
-            hits=$(grep -rIl "$uname" "$dir" 2>/dev/null | grep -vE "\.log$|/proc/|/sys/" | head -10)
+            hits=$(grep -rIl --exclude="*.min.js" "$uname" "$dir" 2>/dev/null | grep -vE "\.log$|/proc/|/sys/" | head -10)
             [ -n "$hits" ] && user_hits+="$hits"$'\n'
         done
 
