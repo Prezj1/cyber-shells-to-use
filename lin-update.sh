@@ -1060,7 +1060,7 @@ echo -e "\n${YELLOW}[+] ${NC}Files with 'password' in name (first 20):"
 locate password 2>/dev/null | head -20 || find / -name "*password*" -type f 2>/dev/null | head -20
 
 echo -e "\n${YELLOW}[+] ${NC}Searching for passwords in common config files:"
-grep -ri -m 20 --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" "password\|passwd\|pwd" /var/www /etc/*.conf /home/*/.ssh 2>/dev/null | grep -v "Binary"
+grep -ri -m 20 --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" --exclude="lin-update.sh" --exclude="*.js" --exclude="*.css" --exclude="*.template" "password\|passwd\|pwd" /var/www /etc/*.conf /home/*/.ssh 2>/dev/null | grep -v "Binary"
 
 echo -e "\n${YELLOW}[+] ${NC}htpasswd files:"
 htpasswd_files=$(find / -name .htpasswd -type f 2>/dev/null)
@@ -1078,7 +1078,7 @@ else
 fi
 
 echo -e "\n${YELLOW}[+] ${NC}AWS credentials: ${CYAN}(may take some time)${NC}"
-aws_keys=$(grep -rli --exclude="LinEnum-ng.sh" "aws_secret_access_key\|aws_access_key_id" /home /root 2>/dev/null | head -10)
+aws_keys=$(grep -rli --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" --exclude="lin-update.sh" --exclude="*.js" --exclude="*.css" --exclude="*.template" "aws_secret_access_key\|aws_access_key_id" /home /root 2>/dev/null | head -10)
 if [ "$aws_keys" ]; then
     echo -e "\033[1;31;103mPossible AWS credentials!\033[0m"
 
@@ -1147,7 +1147,7 @@ api_hits=$(grep -rih \
     --include="*.ini" --include="*.env" --include="*.yml" --include="*.yaml" \
     --include="*.json" --include="*.xml" --include="*.properties" \
     --include="*.txt" --include="*.sh" --include="*.py" --include="*.rb" --include="*.php" \
-    --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" \
+    --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" --exclude="lin-update.sh" --exclude="*.js" --exclude="*.css" --exclude="*.template" \
     --exclude-dir={node_modules,vendor,.git,site-packages,dist-packages} \
     -E "(api_key|api_secret|apikey|access_token|bearer)[[:space:]]*[=:][[:space:]]*['\"]?[A-Za-z0-9_\-]{16,}" \
     /var/www /home 2>/dev/null \
@@ -1171,7 +1171,7 @@ else
 fi
 
 echo -e "\n${YELLOW}[+] ${NC}Private SSH keys (readable):"
-grep -rl --exclude="LinEnum-ng.sh" "PRIVATE KEY-----" /home /root 2>/dev/null | head -10 | while read keyfile; do
+grep -rl --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" --exclude="lin-update.sh" --exclude="*.js" --exclude="*.css" --exclude="*.template" "PRIVATE KEY-----" /home /root 2>/dev/null | head -10 | while read keyfile; do
     echo -e "${LRED}$keyfile${NC}"
 done
 
@@ -1504,7 +1504,7 @@ if [ -n "$USERNAME" ]; then
     fi
 
     echo -e "\n${YELLOW}[+] ${NC}Files containing '${USERNAME}' in their content: ${CYAN}(may take some time)${NC}"
-    content_hits=$(grep -rIl --exclude="LinEnum-ng.sh" \
+    content_hits=$(grep -rIl --exclude="LinEnum-ng.sh" --exclude="linpeas.sh" --exclude="lin-update.sh" --exclude="*.js" --exclude="*.css" --exclude="*.template" \
         --exclude-dir={proc,sys,dev} \
         "$USERNAME" / 2>/dev/null | head -40)
     if [ -n "$content_hits" ]; then
@@ -1719,7 +1719,7 @@ else
         user_hits=""
         for dir in "${hunt_dirs[@]}"; do
             [ -d "$dir" ] || continue
-            hits=$(grep -rIl --exclude="*.min.js" "$uname" "$dir" 2>/dev/null | grep -vE "\.log$|/proc/|/sys/" | head -10)
+            hits=$(grep -rIl --exclude="*.js" --exclude="*.css" --exclude="*.template" --exclude="linpeas.sh" --exclude="LinEnum-ng.sh" --exclude="lin-update.sh" "$uname" "$dir" 2>/dev/null | grep -vE "\.log$|/proc/|/sys/" | head -10)
             [ -n "$hits" ] && user_hits+="$hits"$'\n'
         done
 
