@@ -1,12 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -o pipefail
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options] NMAP_FILE
+Search Exploit-DB for version strings found in normal Nmap output.
+  -h, --help   Show this help and exit
+EOF
+}
+
+case ${1:-} in -h|--help) usage; exit 0;; esac
 
 # Check if an input file was provided
-if [ -z "$1" ]; then
-    echo "[-] Usage: $0 <nmap_output_file.txt>"
-    exit 1
+if [ -z "${1:-}" ]; then
+    usage >&2
+    exit 2
 fi
 
 NMAP_FILE="$1"
+
+command -v searchsploit >/dev/null 2>&1 || { echo "[-] Missing dependency: searchsploit" >&2; exit 1; }
 
 # Verify the file exists
 if [ ! -f "$NMAP_FILE" ]; then

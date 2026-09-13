@@ -6,9 +6,18 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options] NMAP_FILE
+Search Exploit-DB using SNMP fingerprints from Nmap output.
+  -h, --help   Show this help and exit
+EOF
+}
+
+case ${1:-} in -h|--help) usage; exit 0;; esac
+
 if [ -z "${1:-}" ] || [ ! -f "$1" ]; then
-    echo -e "${YELLOW}Usage: $0 <nmap_output_file>${NC}"
-    exit 1
+    usage >&2; exit 2
 fi
 
 command -v searchsploit >/dev/null 2>&1 || { echo -e "${RED}[!] searchsploit is required but not installed.${NC}" >&2; exit 1; }

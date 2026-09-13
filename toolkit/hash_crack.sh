@@ -1,11 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 # hash_crack.sh — Detect hash type and run hashcat with the right mode
 #
 # FOR AUTHORIZED TESTING AND CTF USE ONLY
 #
 # USAGE:
 #   ./hash_crack.sh -f hashes.txt
-#   ./hash_crack.sh -h "5f4dcc3b5aa765d61d8327deb882cf99"
+#   ./hash_crack.sh -H "5f4dcc3b5aa765d61d8327deb882cf99"
 #   ./hash_crack.sh -f hashes.txt -w /usr/share/wordlists/rockyou.txt -r best64
 
 WORDLIST="/usr/share/wordlists/rockyou.txt"
@@ -19,16 +20,16 @@ usage() {
     echo -e "hash_crack.sh — Auto-detect hash type and crack with hashcat"
     echo -e ""
     echo -e "  -f <file>      File containing hashes (one per line)"
-    echo -e "  -h <hash>      Single hash string"
+    echo -e "  -H <hash>      Single hash string"
     echo -e "  -w <wordlist>  Wordlist (default: rockyou.txt)"
     echo -e "  -r <rules>     Hashcat rules file (e.g. best64, dive, OneRuleToRuleThemAll)"
     echo -e "  -o <file>      Output cracked hashes to file"
     echo -e "  -x <args>      Extra hashcat args (quoted)"
-    echo -e "  --help         This help"
+    echo -e "  -h, --help     This help"
     echo -e ""
     echo -e "Examples:"
     echo -e "  $0 -f hashes.txt"
-    echo -e "  $0 -h \"5f4dcc3b5aa765d61d8327deb882cf99\""
+    echo -e "  $0 -H \"5f4dcc3b5aa765d61d8327deb882cf99\""
     echo -e "  $0 -f hashes.txt -w /usr/share/wordlists/rockyou.txt -r best64"
     echo -e "  $0 -f ntlm.txt -w rockyou.txt -x \"--force\""
     exit 0
@@ -145,14 +146,12 @@ mode_name() {
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -f) HASH_FILE="$2";   shift 2 ;;
-        -h) SINGLE_HASH="$2"; shift 2 ;;
-        -w) WORDLIST="$2";    shift 2 ;;
-        -r) RULES="$2";       shift 2 ;;
-        -o) OUTFILE="$2";     shift 2 ;;
-        -x) EXTRA_ARGS="$2";  shift 2 ;;
-        --help) usage ;;
-        *) echo "[-] Unknown option: $1"; usage ;;
+        -h|--help) usage ;;
+        -f|-H|-w|-r|-o|-x)
+            [[ $# -ge 2 ]] || { echo "[-] $1 requires a value" >&2; exit 2; }
+            option=$1; value=$2; shift 2
+            case "$option" in -f) HASH_FILE=$value;; -H) SINGLE_HASH=$value;; -w) WORDLIST=$value;; -r) RULES=$value;; -o) OUTFILE=$value;; -x) EXTRA_ARGS=$value;; esac ;;
+        *) echo "[-] Unknown option: $1 (try -h)" >&2; exit 2 ;;
     esac
 done
 
@@ -163,7 +162,7 @@ command -v hashcat &>/dev/null || { echo "[-] hashcat not found: sudo apt instal
 # Build temp hash file if single hash supplied
 TMPFILE=""
 if [[ -n "$SINGLE_HASH" ]]; then
-    TMPFILE=$(mktemp /tmp/hash_XXXXXX)
+    TMPFILE=$(mktemp "${TMPDIR:-/tmp}/hash.XXXXXX")
     echo "$SINGLE_HASH" > "$TMPFILE"
     HASH_FILE="$TMPFILE"
     trap 'rm -f "$TMPFILE"' EXIT
@@ -192,9 +191,13 @@ fi
 
 # ── Build hashcat command ─────────────────────────────────────────────────────
 CMD=(hashcat -m "$MODE" -a 0 "$HASH_FILE" "$WORDLIST")
-[[ -n "$RULES"     ]] && CMD+=(-r "/usr/share/hashcat/rules/${RULES}.rule")
+if [[ -n "$RULES" ]]; then
+    [[ "$RULES" == */* ]] && rule_file=$RULES || rule_file="/usr/share/hashcat/rules/${RULES%.rule}.rule"
+    [[ -r "$rule_file" ]] || { echo "[-] Rules file not found: $rule_file" >&2; exit 1; }
+    CMD+=(-r "$rule_file")
+fi
 [[ -n "$OUTFILE"   ]] && CMD+=(--outfile "$OUTFILE")
-[[ -n "$EXTRA_ARGS" ]] && CMD+=($EXTRA_ARGS)
+if [[ -n "$EXTRA_ARGS" ]]; then read -r -a extra <<< "$EXTRA_ARGS"; CMD+=("${extra[@]}"); fi
 CMD+=(--potfile-disable)   # show results every run
 
 echo "[*] Running: ${CMD[*]}"
